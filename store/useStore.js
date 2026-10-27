@@ -152,6 +152,32 @@ const useStore = create((set, get) => ({
     }
   },
 
+  swapWalletCrypto: async (fromAsset, amount) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await axios.post(`${API_URL}/router/swap-wallet-crypto`, {
+        from_currency: fromAsset,
+        amount: parseFloat(amount)
+      }, {
+        headers: { Authorization: `Bearer ${get().token}` }
+      });
+      await get().fetchUserData(get().token);
+      set({ loading: false });
+      return { success: true, data: res.data };
+    } catch (error) {
+      let rawMsg = error.response?.data?.detail || error.message || 'Swap could not be completed';
+      let sanitized = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+      sanitized = sanitized
+        .replace(/changenow/gi, 'liquidity network')
+        .replace(/bitnob/gi, 'banking network')
+        .replace(/flutterwave/gi, 'settlement network')
+        .replace(/tatum/gi, 'network provider')
+        .replace(/coingecko/gi, 'market feed');
+      set({ error: sanitized, loading: false });
+      return { success: false, error: sanitized };
+    }
+  },
+
   buyCrypto: async (fromAsset, toAsset, amount, recipientAddress = null) => {
     set({ loading: true, error: null });
     try {

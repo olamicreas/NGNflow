@@ -15,7 +15,7 @@ import {
   Keyboard
 } from 'react-native';
 
-import { ArrowDown, ChevronRight, X, Copy, Check, Clock } from 'lucide-react-native';
+import { ArrowDown, ChevronRight, X, Copy, Check, Clock, Info, ShieldCheck, Zap } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import useStore from '../store/useStore';
@@ -52,6 +52,9 @@ export default function SwapScreen({ route, navigation }) {
   const [routerQuote, setRouterQuote] = useState(null);
   const [fetchingQuote, setFetchingQuote] = useState(false);
 
+  // Sell source selection: 'wallet' (in-app balance) vs 'external' (QR deposit)
+  const [sellSource, setSellSource] = useState('wallet');
+
   useEffect(() => {
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
@@ -87,7 +90,7 @@ export default function SwapScreen({ route, navigation }) {
 
   const balances = useStore(state => state.balances);
   const liveRates = useStore(state => state.rates);
-  const { swap, sellToNgn, buyCrypto, getRouterQuote, checkRouterStatus, loading } = useStore();
+  const { swap, sellToNgn, buyCrypto, swapWalletCrypto, getRouterQuote, checkRouterStatus, loading } = useStore();
 
   useEffect(() => {
     const getLiveRates = async () => {
@@ -110,12 +113,11 @@ export default function SwapScreen({ route, navigation }) {
 
   // Determine swap category
   const isInternalOtc = OTC_ASSETS.includes(payAsset.symbol) && OTC_ASSETS.includes(receiveAsset.symbol);
-  const isSellMode = ROUTER_ASSETS.includes(payAsset.symbol) && (receiveAsset.symbol === 'NGN' || receiveAsset.symbol.startsWith('USDT'));
+  const isRouterSell = ROUTER_ASSETS.includes(payAsset.symbol) && (receiveAsset.symbol === 'NGN' || receiveAsset.symbol.startsWith('USDT'));
   const isBuyMode = (payAsset.symbol === 'NGN' || payAsset.symbol.startsWith('USDT')) && ROUTER_ASSETS.includes(receiveAsset.symbol);
-  const isRouterCross = !isInternalOtc && !isSellMode && !isBuyMode;
 
   // Sync selected asset with navigation params dynamically
-  React.useEffect(() => {
+  useEffect(() => {
     if (route.params?.initialAsset) {
       const sym = route.params.initialAsset === 'USDT' ? 'USDT_TRC20' : route.params.initialAsset;
       const found = ASSETS.find(a => a.symbol === sym);
@@ -128,10 +130,21 @@ export default function SwapScreen({ route, navigation }) {
   const fromBalance = balances[payAsset.symbol] || 0;
   const parsedPay = parseFloat(payAmount || 0);
 
-  // Fetch live router quote when non-OTC swap is selected
+  // Set default sell source based on in-app balance
+  useEffect(() => {
+    if (isRouterSell) {
+      if (fromBalance > 0) {
+        setSellSource('wallet');
+      } else {
+        setSellSource('external');
+      }
+    }
+  }, [isRouterSell, payAsset.symbol, fromBalance]);
+
+  // Fetch live router quote when buying crypto or external sell
   useEffect(() => {
     let active = true;
-    if (!isInternalOtc && parsedPay > 0) {
+    if ((isBuyMode || (isRouterSell && sellSource === 'external')) && parsedPay > 0) {
       setFetchingQuote(true);
       const timer = setTimeout(async () => {
         const q = await getRouterQuote(payAsset.symbol, receiveAsset.symbol, parsedPay);
@@ -148,7 +161,7 @@ export default function SwapScreen({ route, navigation }) {
       setRouterQuote(null);
       setFetchingQuote(false);
     }
-  }, [payAsset.symbol, receiveAsset.symbol, payAmount, isInternalOtc]);
+  }, [payAsset.symbol, receiveAsset.symbol, payAmount, isBuyMode, isRouterSell, sellSource]);
 
   // Rate calculations
   const payRate = liveRates[payAsset.symbol] || (payAsset.symbol === 'NGN' ? 1 : 1650);
@@ -156,6 +169,10 @@ export default function SwapScreen({ route, navigation }) {
 
   let receiveAmount = 0;
   if (isInternalOtc) {
+    const grossAmount = parsedPay * (payRate / receiveRate);
+    receiveAmount = grossAmount > 0 ? grossAmount * 0.99 : 0;
+  } else if (isRouterSell && sellSource === 'wallet') {
+    // In-app wallet crypto swap directly to NGN: spot rate with 1% platform fee, 0 network gas fee
     const grossAmount = parsedPay * (payRate / receiveRate);
     receiveAmount = grossAmount > 0 ? grossAmount * 0.99 : 0;
   } else if (routerQuote && routerQuote.estimated_receive) {
@@ -166,9 +183,10 @@ export default function SwapScreen({ route, navigation }) {
   }
 
   // Validity checks
-  const isBalanceSufficient = isSellMode ? true : parsedPay <= fromBalance;
+  const isBalanceSufficient = (isRouterSell && sellSource === 'external') ? true : parsedPay <= fromBalance;
   const isPairDifferent = payAsset.symbol !== receiveAsset.symbol;
-  const isValid = parsedPay > 0 && isBalanceSufficient && isPairDifferent;
+  const isBelowMin = isBuyMode && routerQuote?.min_amount > 0 && parsedPay < routerQuote.min_amount;
+  const isValid = parsedPay > 0 && isBalanceSufficient && isPairDifferent && !isBelowMin;
 
   // Countdown and status polling timer for active deposit order
   useEffect(() => {
@@ -215,7 +233,7 @@ export default function SwapScreen({ route, navigation }) {
       return;
     }
 
-    // 1. Internal OTC Swap
+    // 1. Internal OTC Swap (NGN <-> USDT variants, BTC)
     if (isInternalOtc) {
       const res = await swap(payAsset.symbol, receiveAsset.symbol, parsedPay);
       if (res?.success) {
@@ -231,27 +249,42 @@ export default function SwapScreen({ route, navigation }) {
       return;
     }
 
-    // 2. Sell Crypto for Naira / USDT (Deposit & Convert)
-    if (isSellMode) {
-      const res = await sellToNgn(payAsset.symbol, parsedPay);
-      if (res?.success) {
-        setActiveDepositOrder(res.data);
-        setDepositStatus('waiting');
-        setDepositModalVisible(true);
+    // 2. Sell Crypto for Naira (In-App Wallet Balance vs External QR Deposit)
+    if (isRouterSell) {
+      if (sellSource === 'wallet') {
+        const res = await swapWalletCrypto(payAsset.symbol, parsedPay);
+        if (res?.success) {
+          Alert.alert(
+            'Swap Successful 🎉',
+            `Successfully swapped ${parsedPay} ${payAsset.symbol} for ₦${(res.data?.received || receiveAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} NGN. Your Naira wallet balance has been credited instantly.`
+          );
+          setPayAmount('');
+        } else {
+          const err = res?.error || 'Swap could not be completed. Please try again.';
+          Alert.alert('Swap Failed', err);
+        }
+        return;
       } else {
-        const err = res?.error || 'Could not initiate swap. Please try again.';
-        Alert.alert('Order Failed', err);
+        const res = await sellToNgn(payAsset.symbol, parsedPay);
+        if (res?.success) {
+          setActiveDepositOrder(res.data);
+          setDepositStatus('waiting');
+          setDepositModalVisible(true);
+        } else {
+          const err = res?.error || 'Could not initiate swap. Please try again.';
+          Alert.alert('Order Failed', err);
+        }
+        return;
       }
-      return;
     }
 
-    // 3. Buy Crypto (Automatically routes to user's on-chain wallet address)
+    // 3. Buy Crypto (NGN / USDT -> ETH, TRX, BNB, POL deposited on-chain into user's wallet)
     if (isBuyMode) {
       const res = await buyCrypto(payAsset.symbol, receiveAsset.symbol, parsedPay);
       if (res?.success) {
         Alert.alert(
           'Swap Successful 🎉',
-          `Successfully swapped ${parsedPay} ${payAsset.symbol} to ${receiveAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${receiveAsset.symbol}. Your wallet balance has been updated and coins have been deposited to your ${receiveAsset.symbol} wallet.`
+          `Successfully swapped ${parsedPay} ${payAsset.symbol} to ${receiveAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${receiveAsset.symbol}. Your in-app balance has been updated and on-chain transfer has been broadcasted to your wallet address.`
         );
         setPayAmount('');
       } else {
@@ -261,8 +294,7 @@ export default function SwapScreen({ route, navigation }) {
       return;
     }
 
-    // 4. Other cross-currency router swaps
-    Alert.alert('Notice', 'Cross-currency swaps to external assets are processed directly via on-chain withdrawal.');
+    Alert.alert('Notice', 'Cross-currency swaps are processed directly via on-chain settlement.');
   };
 
   const copyToClipboard = async (text) => {
@@ -296,6 +328,15 @@ export default function SwapScreen({ route, navigation }) {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const getButtonText = () => {
+    if (!parsedPay || parsedPay <= 0) return 'Enter Amount';
+    if (payAsset.symbol === receiveAsset.symbol) return 'Select Different Assets';
+    if (!isBalanceSufficient) return `Insufficient ${payAsset.symbol} Balance`;
+    if (isBelowMin) return `Min Swap: ₦${Math.ceil(routerQuote.min_amount).toLocaleString()}`;
+    if (isRouterSell && sellSource === 'external') return 'Generate Deposit Address & Lock Rate';
+    return 'Confirm Swap';
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-black">
       <KeyboardAvoidingView
@@ -318,15 +359,39 @@ export default function SwapScreen({ route, navigation }) {
           showsVerticalScrollIndicator={false}
         >
           <Text className="text-2xl font-bold mb-2 text-center text-white">Instant Swap & Convert</Text>
-          <Text className="text-xs text-neutral-400 mb-6 text-center">
+          <Text className="text-xs text-neutral-400 mb-5 text-center">
             {isInternalOtc ? 'Instant OTC Swap • 100% Backed Liquidity' :
-             isSellMode ? 'Convert External Crypto ➔ Naira Bank Balance' :
-             isBuyMode ? 'Convert to Real Crypto in Your App Wallet' :
-             'On-Chain Multi-Network Router'}
+             isRouterSell && sellSource === 'wallet' ? 'Instant In-App Swap • Zero Gas Fee' :
+             isRouterSell && sellSource === 'external' ? 'Convert External Crypto ➔ Naira Bank Balance' :
+             isBuyMode ? 'Convert to Real On-Chain Crypto' :
+             'Multi-Network Settlement Router'}
           </Text>
 
+          {/* SELL SOURCE SELECTOR (When Selling ETH, TRX, BNB, POL to NGN) */}
+          {isRouterSell && (
+            <View className="flex-row bg-neutral-950 p-1.5 rounded-2xl border border-neutral-800 mb-4">
+              <TouchableOpacity
+                onPress={() => setSellSource('wallet')}
+                className={`flex-1 py-2.5 rounded-xl items-center flex-row justify-center ${sellSource === 'wallet' ? 'bg-neutral-800 shadow-md' : ''}`}
+              >
+                <Zap color={sellSource === 'wallet' ? '#10b981' : '#737373'} size={14} />
+                <Text className={`text-xs font-semibold ml-1.5 ${sellSource === 'wallet' ? 'text-white' : 'text-neutral-400'}`}>
+                  In-App Balance ({fromBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setSellSource('external')}
+                className={`flex-1 py-2.5 rounded-xl items-center ${sellSource === 'external' ? 'bg-neutral-800 shadow-md' : ''}`}
+              >
+                <Text className={`text-xs font-semibold ${sellSource === 'external' ? 'text-white' : 'text-neutral-400'}`}>
+                  External Deposit (QR)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* YOU PAY CARD */}
-          <View className={`bg-neutral-900 p-6 rounded-[2rem] border ${(!isSellMode && parsedPay > fromBalance) ? 'border-red-500/50' : 'border-neutral-800'} mb-2`}>
+          <View className={`bg-neutral-900 p-6 rounded-[2rem] border ${(!isBalanceSufficient) ? 'border-red-500/50' : 'border-neutral-800'} mb-2`}>
             <Text className="text-xs text-neutral-400 font-medium uppercase mb-3">You Pay</Text>
             <View className="flex-row justify-between items-center h-16">
               <TextInput
@@ -347,10 +412,10 @@ export default function SwapScreen({ route, navigation }) {
               </TouchableOpacity>
             </View>
             <View className="flex-row justify-between items-center mt-2">
-              <Text className={`text-xs ${(!isSellMode && parsedPay > fromBalance) ? 'text-red-400' : 'text-neutral-500'}`}>
-                {isSellMode ? 'Send from any external wallet' : `Balance: ${fromBalance.toLocaleString()} ${payAsset.symbol}`}
+              <Text className={`text-xs ${(!isBalanceSufficient) ? 'text-red-400' : 'text-neutral-500'}`}>
+                {isRouterSell && sellSource === 'external' ? 'Send from MetaMask, Trust Wallet, etc.' : `Balance: ${fromBalance.toLocaleString()} ${payAsset.symbol}`}
               </Text>
-              {!isSellMode && (
+              {!(isRouterSell && sellSource === 'external') && (
                 <TouchableOpacity onPress={() => setPayAmount(fromBalance.toString())}>
                   <Text className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">MAX</Text>
                 </TouchableOpacity>
@@ -394,19 +459,85 @@ export default function SwapScreen({ route, navigation }) {
             </View>
           </View>
 
+          {/* TRANSPARENT TRANSACTION & GAS FEE BREAKDOWN (FOR ON-CHAIN BUY) */}
+          {isBuyMode && routerQuote && (
+            <View className="bg-neutral-900/90 p-4 rounded-2xl border border-neutral-800 mt-3">
+              <View className="flex-row justify-between items-center mb-2.5">
+                <Text className="text-xs font-semibold text-neutral-300">Transaction Breakdown</Text>
+                <View className="bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  <Text className="text-[10px] text-emerald-400 font-medium">On-Chain Delivery</Text>
+                </View>
+              </View>
+
+              <View className="flex-row justify-between items-center py-1.5 border-b border-neutral-800/60">
+                <Text className="text-xs text-neutral-400">Pay Amount</Text>
+                <Text className="text-xs text-white font-medium">₦{parsedPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+
+              <View className="flex-row justify-between items-center py-1.5 border-b border-neutral-800/60">
+                <Text className="text-xs text-neutral-400">Platform Fee (1%)</Text>
+                <Text className="text-xs text-neutral-300">₦{(routerQuote.fee || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+
+              <View className="flex-row justify-between items-center py-1.5 border-b border-neutral-800/60">
+                <Text className="text-xs text-neutral-400">Network & Bridge Gas</Text>
+                <Text className="text-xs text-amber-400 font-medium">
+                  ~${(routerQuote.network_fee_usd || 0).toFixed(2)} (₦{(routerQuote.network_fee_ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })})
+                </Text>
+              </View>
+
+              <View className="flex-row justify-between items-center py-1.5">
+                <Text className="text-xs font-bold text-white">Estimated Received</Text>
+                <View className="items-end">
+                  <Text className="text-xs font-bold text-emerald-400">
+                    {(routerQuote.estimated_receive || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {receiveAsset.symbol}
+                  </Text>
+                  {routerQuote.estimated_ngn_value ? (
+                    <Text className="text-[10px] text-neutral-400">
+                      ≈ ₦{routerQuote.estimated_ngn_value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+
+              {routerQuote.min_amount > 0 && parsedPay < routerQuote.min_amount && (
+                <View className="bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 mt-2">
+                  <Text className="text-[11px] text-amber-400">
+                    ⚠️ Minimum required swap amount for {receiveAsset.symbol} is ₦{routerQuote.min_amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}.
+                  </Text>
+                </View>
+              )}
+
+              <Text className="text-[10px] text-neutral-500 mt-2 leading-4">
+                ℹ️ Cross-chain delivery involves fixed blockchain validator & bridge gas. Swapping larger amounts significantly reduces the relative percentage impact of network gas fees.
+              </Text>
+            </View>
+          )}
+
+          {/* IN-APP WALLET SWAP PERK (FOR IN-APP SWAPS) */}
+          {(isInternalOtc || (isRouterSell && sellSource === 'wallet')) && (
+            <View className="bg-neutral-900/90 p-3.5 rounded-2xl border border-neutral-800 mt-3 flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <ShieldCheck color="#10b981" size={16} />
+                <Text className="text-xs text-neutral-300 font-medium ml-2">Internal Wallet Settlement</Text>
+              </View>
+              <View className="bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                <Text className="text-[10px] text-emerald-400 font-semibold">Zero Gas Fee • Instant</Text>
+              </View>
+            </View>
+          )}
+
           {/* CONFIRM BUTTON */}
           <TouchableOpacity
             onPress={handleSwap}
             disabled={!isValid || loading}
-            className={`p-4 rounded-xl items-center mt-8 ${!isValid ? 'bg-neutral-900 border border-neutral-800' : 'bg-emerald-500'}`}
+            className={`p-4 rounded-xl items-center mt-6 ${!isValid ? 'bg-neutral-900 border border-neutral-800' : 'bg-emerald-500 shadow-lg shadow-emerald-500/20'}`}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text className={`font-bold text-lg ${!isValid ? 'text-neutral-600' : 'text-white'}`}>
-                {!isSellMode && parsedPay > fromBalance ? 'Insufficient Balance' :
-                 isSellMode ? 'Generate Deposit Address & Lock Rate' :
-                 'Confirm Swap'}
+                {getButtonText()}
               </Text>
             )}
           </TouchableOpacity>
