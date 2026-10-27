@@ -89,9 +89,15 @@ export default function TransferScreen({ navigation, route }) {
 
   const handleTransfer = async () => {
     if (!amount || parseFloat(amount) <= 0) return Alert.alert('Invalid Amount');
+    if (tab === 'crypto' && currency.startsWith('USDT') && parseFloat(amount) < 10) {
+      return Alert.alert('Minimum Transfer', 'Minimum on-chain withdrawal for USDT is 10.00 USDT ($10.00 USD).');
+    }
     setLoading(true);
     if (tab === 'crypto') {
-      if (!address) return Alert.alert('Missing Address');
+      if (!address) {
+        setLoading(false);
+        return Alert.alert('Missing Address');
+      }
       const success = await transferCrypto(currency, network, address, parseFloat(amount));
       if (success) {
         Alert.alert('Success', `Sent ${amount} ${currency}`);
@@ -101,6 +107,7 @@ export default function TransferScreen({ navigation, route }) {
       }
     } else {
       if (!accountNumber || accountNumber.length < 10 || accountName === 'Invalid Account' || !accountName) {
+        setLoading(false);
         return Alert.alert('Invalid Account', 'Please ensure account is verified.');
       }
       const success = await withdrawFiat(parseFloat(amount), selectedBank.code, accountNumber);
@@ -144,6 +151,13 @@ export default function TransferScreen({ navigation, route }) {
             />
           </View>
           <Text className="text-sm font-medium text-neutral-500 mt-4">Available: {tab === 'fiat' ? `₦${balances.NGN?.toLocaleString()}` : `${balances[currency]} ${currency}`}</Text>
+          {tab === 'crypto' && currency.startsWith('USDT') && (
+            <View className="bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 mt-2">
+              <Text className="text-[11px] text-emerald-400 font-medium">
+                Min: 10 USDT • Zero network gas required
+              </Text>
+            </View>
+          )}
         </View>
 
         {tab === 'crypto' ? (
@@ -248,18 +262,22 @@ export default function TransferScreen({ navigation, route }) {
                 <Text className="text-xl font-bold text-white">Select Asset</Text>
                 <TouchableOpacity onPress={() => setShowCryptoPicker(false)}><X color="#fff" size={24} /></TouchableOpacity>
               </View>
-              {['USDT_ERC20', 'USDT_TRC20', 'BTC', 'ETH', 'TRX'].map(coin => (
+              {['USDT_TRC20', 'USDT_BEP20', 'USDT_POLYGON', 'USDT_ERC20', 'BTC', 'ETH', 'TRX', 'BNB', 'POL'].map(coin => (
                 <TouchableOpacity
                   key={coin}
                   onPress={() => {
                     setCurrency(coin);
-                    setNetwork(coin === 'BTC' ? 'Bitcoin' : coin === 'ETH' ? 'ERC20' : 'TRC20');
+                    if (coin === 'USDT_TRC20' || coin === 'TRX') setNetwork('TRC20');
+                    else if (coin === 'USDT_BEP20' || coin === 'BNB') setNetwork('BEP20');
+                    else if (coin === 'USDT_POLYGON' || coin === 'POL') setNetwork('Polygon');
+                    else if (coin === 'BTC') setNetwork('Bitcoin');
+                    else setNetwork('ERC20');
                     setShowCryptoPicker(false);
                   }}
                   className="p-4 border-b border-neutral-800 flex-row items-center justify-between"
                 >
                   <Text className="text-white font-bold text-lg">{coin}</Text>
-                  <Text className="text-neutral-500 font-medium">{balances[coin]} {coin}</Text>
+                  <Text className="text-neutral-500 font-medium">{(balances[coin] || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} {coin}</Text>
                 </TouchableOpacity>
               ))}
             </View>
