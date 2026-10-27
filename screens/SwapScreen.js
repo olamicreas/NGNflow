@@ -19,6 +19,7 @@ import { ArrowDown, ChevronRight, X, Copy, Check, Clock, Info, ShieldCheck, Zap 
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import useStore from '../store/useStore';
+import SwapTrackerModal from '../components/SwapTrackerModal';
 
 const ASSETS = [
   { symbol: 'NGN', name: 'Nigerian Naira', isFiat: true, logo: 'https://cdn.countryflags.com/thumbs/nigeria/flag-round-250.png' },
@@ -54,6 +55,10 @@ export default function SwapScreen({ route, navigation }) {
 
   // Sell source selection: 'wallet' (in-app balance) vs 'external' (QR deposit)
   const [sellSource, setSellSource] = useState('wallet');
+
+  // Live on-chain tracker modal
+  const [trackerModalVisible, setTrackerModalVisible] = useState(false);
+  const [activeTrackerOrder, setActiveTrackerOrder] = useState(null);
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -282,10 +287,16 @@ export default function SwapScreen({ route, navigation }) {
     if (isBuyMode) {
       const res = await buyCrypto(payAsset.symbol, receiveAsset.symbol, parsedPay);
       if (res?.success) {
-        Alert.alert(
-          'Swap Successful 🎉',
-          `Successfully swapped ${parsedPay} ${payAsset.symbol} to ${receiveAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${receiveAsset.symbol}. Your in-app balance has been updated and on-chain transfer has been broadcasted to your wallet address.`
-        );
+        setActiveTrackerOrder({
+          reference_id: res.data?.reference_id || res.data?.router_id,
+          amount_paid: parsedPay,
+          from_currency: payAsset.symbol,
+          expected_receive: res.data?.expected_crypto || receiveAmount,
+          to_currency: receiveAsset.symbol,
+          recipient_address: res.data?.recipient_address,
+          initial_status: 'waiting'
+        });
+        setTrackerModalVisible(true);
         setPayAmount('');
       } else {
         const err = res?.error || 'Swap could not be completed.';
@@ -659,6 +670,12 @@ export default function SwapScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+      {/* LIVE ON-CHAIN SWAP TRACKER MODAL */}
+      <SwapTrackerModal
+        visible={trackerModalVisible}
+        onClose={() => setTrackerModalVisible(false)}
+        order={activeTrackerOrder}
+      />
     </SafeAreaView>
   );
 }

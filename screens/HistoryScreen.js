@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal } from 'react-native';
-import { ArrowUpRight, ArrowDownLeft, Clock, RefreshCw, X } from 'lucide-react-native';
+import { ArrowUpRight, ArrowDownLeft, Clock, RefreshCw, X, Zap } from 'lucide-react-native';
 import useStore from '../store/useStore';
+import SwapTrackerModal from '../components/SwapTrackerModal';
 
 export default function HistoryScreen() {
   const transactions = useStore(state => state.transactions);
   const [selectedTx, setSelectedTx] = useState(null);
+  const [trackerVisible, setTrackerVisible] = useState(false);
+  const [activeTrackerOrder, setActiveTrackerOrder] = useState(null);
 
   const getIcon = (type) => {
     if (type === 'deposit') return <ArrowDownLeft color="#10b981" size={20} />;
@@ -31,6 +34,28 @@ export default function HistoryScreen() {
     return '';
   };
 
+  const handleTxPress = (tx) => {
+    if (tx.reference_id && (tx.type === 'swap' || tx.type === 'deposit')) {
+      let meta = {};
+      try {
+        meta = JSON.parse(tx.metadata_json || '{}');
+      } catch (e) {}
+
+      setActiveTrackerOrder({
+        reference_id: tx.reference_id,
+        amount_paid: meta.amount_paid || tx.amount,
+        from_currency: meta.from_currency || tx.currency,
+        expected_receive: meta.expected_crypto || meta.expected_ngn || tx.amount,
+        to_currency: meta.to_currency || tx.currency,
+        recipient_address: meta.recipient_address,
+        initial_status: tx.status === 'completed' ? 'finished' : 'waiting'
+      });
+      setTrackerVisible(true);
+      return;
+    }
+    setSelectedTx(tx);
+  };
+
   return (
     <View className="flex-1 bg-black px-5 pt-20">
       <Text className="text-2xl font-bold text-center text-white mb-8">Transaction History</Text>
@@ -46,18 +71,29 @@ export default function HistoryScreen() {
       ) : (
         <ScrollView showsVerticalScrollIndicator={false}>
           {transactions.map((tx, index) => {
+            const isPending = tx.status === 'pending';
+            const isRouterSwap = !!tx.reference_id;
+
             return (
               <TouchableOpacity 
                 key={tx.id || index} 
-                onPress={() => setSelectedTx(tx)}
-                className="flex-row items-center justify-between bg-neutral-900 p-4 rounded-2xl mb-3 border border-neutral-800"
+                onPress={() => handleTxPress(tx)}
+                className={`flex-row items-center justify-between bg-neutral-900 p-4 rounded-2xl mb-3 border ${isPending ? 'border-amber-500/40 bg-neutral-900/95' : 'border-neutral-800'}`}
               >
-                <View className="flex-row items-center">
+                <View className="flex-row items-center flex-1">
                   <View className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${getColorClass(tx.type)}`}>
                     {getIcon(tx.type)}
                   </View>
-                  <View>
-                    <Text className="text-white font-bold text-base capitalize">{tx.type} {tx.currency}</Text>
+                  <View className="flex-1">
+                    <View className="flex-row items-center">
+                      <Text className="text-white font-bold text-base capitalize mr-2">{tx.type} {tx.currency}</Text>
+                      {isPending && (
+                        <View className="bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/30 flex-row items-center">
+                          <View className="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1 animate-pulse" />
+                          <Text className="text-[10px] font-bold text-amber-400">Live</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text className="text-neutral-400 text-xs mt-0.5">{new Date(tx.created_at).toLocaleDateString()}</Text>
                   </View>
                 </View>
@@ -69,7 +105,9 @@ export default function HistoryScreen() {
                   >
                     {getPrefix(tx.type)}{tx.amount} {tx.currency}
                   </Text>
-                  <Text className="text-neutral-500 text-xs mt-0.5 capitalize">{tx.status}</Text>
+                  <Text className={`text-xs mt-0.5 capitalize font-medium ${isPending ? 'text-amber-400' : tx.status === 'completed' ? 'text-emerald-500' : 'text-neutral-500'}`}>
+                    {isPending ? 'Processing...' : tx.status}
+                  </Text>
                 </View>
               </TouchableOpacity>
             );
@@ -77,7 +115,7 @@ export default function HistoryScreen() {
         </ScrollView>
       )}
 
-      {/* Transaction Details Modal */}
+      {/* Transaction Details Modal (For standard txs) */}
       <Modal visible={!!selectedTx} animationType="slide" transparent={true}>
         <View className="flex-1 justify-end bg-black/80">
           <View className="bg-neutral-900 rounded-t-3xl p-6 min-h-[50%]">
@@ -137,6 +175,13 @@ export default function HistoryScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Live Swap Tracker Modal (For on-chain swaps) */}
+      <SwapTrackerModal
+        visible={trackerVisible}
+        onClose={() => setTrackerVisible(false)}
+        order={activeTrackerOrder}
+      />
     </View>
   );
 }
