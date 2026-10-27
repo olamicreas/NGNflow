@@ -4,6 +4,15 @@ import { ArrowUpRight, ArrowDownLeft, Clock, RefreshCw, X, Zap } from 'lucide-re
 import useStore from '../store/useStore';
 import SwapTrackerModal from '../components/SwapTrackerModal';
 
+const formatHistoryAsset = (curr) => {
+  if (!curr) return { symbol: '', badge: null };
+  if (curr === 'USDT_TRC20') return { symbol: 'USDT', badge: 'TRC20' };
+  if (curr === 'USDT_BEP20') return { symbol: 'USDT', badge: 'BEP20' };
+  if (curr === 'USDT_POLYGON') return { symbol: 'USDT', badge: 'Polygon' };
+  if (curr === 'USDT_ERC20') return { symbol: 'USDT', badge: 'ERC20' };
+  return { symbol: curr, badge: null };
+};
+
 export default function HistoryScreen() {
   const transactions = useStore(state => state.transactions);
   const [selectedTx, setSelectedTx] = useState(null);
@@ -73,6 +82,7 @@ export default function HistoryScreen() {
           {transactions.map((tx, index) => {
             const isPending = tx.status === 'pending';
             const isRouterSwap = !!tx.reference_id;
+            const assetInfo = formatHistoryAsset(tx.currency);
 
             return (
               <TouchableOpacity 
@@ -85,8 +95,13 @@ export default function HistoryScreen() {
                     {getIcon(tx.type)}
                   </View>
                   <View className="flex-1">
-                    <View className="flex-row items-center">
-                      <Text className="text-white font-bold text-base capitalize mr-2">{tx.type} {tx.currency}</Text>
+                    <View className="flex-row items-center flex-wrap">
+                      <Text className="text-white font-bold text-base capitalize mr-1.5">{tx.type} {assetInfo.symbol}</Text>
+                      {assetInfo.badge && (
+                        <View className="bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30 mr-1.5">
+                          <Text className="text-[10px] font-bold text-emerald-400">{assetInfo.badge}</Text>
+                        </View>
+                      )}
                       {isPending && (
                         <View className="bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/30 flex-row items-center">
                           <View className="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1 animate-pulse" />
@@ -103,7 +118,7 @@ export default function HistoryScreen() {
                     numberOfLines={1}
                     adjustsFontSizeToFit
                   >
-                    {getPrefix(tx.type)}{tx.amount} {tx.currency}
+                    {getPrefix(tx.type)}{tx.amount} {assetInfo.symbol}
                   </Text>
                   <Text className={`text-xs mt-0.5 capitalize font-medium ${isPending ? 'text-amber-400' : tx.status === 'completed' ? 'text-emerald-500' : 'text-neutral-500'}`}>
                     {isPending ? 'Processing...' : tx.status}
@@ -132,9 +147,16 @@ export default function HistoryScreen() {
                   <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${getColorClass(selectedTx.type)}`}>
                     {getIcon(selectedTx.type)}
                   </View>
-                  <Text className={`text-3xl font-bold ${getTextColor(selectedTx.type)}`}>
-                    {getPrefix(selectedTx.type)}{selectedTx.amount} {selectedTx.currency}
-                  </Text>
+                  <View className="flex-row items-center justify-center">
+                    <Text className={`text-3xl font-bold ${getTextColor(selectedTx.type)} mr-2`}>
+                      {getPrefix(selectedTx.type)}{selectedTx.amount} {formatHistoryAsset(selectedTx.currency).symbol}
+                    </Text>
+                    {formatHistoryAsset(selectedTx.currency).badge && (
+                      <View className="bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
+                        <Text className="text-xs font-bold text-emerald-400">{formatHistoryAsset(selectedTx.currency).badge}</Text>
+                      </View>
+                    )}
+                  </View>
                   <View className="bg-neutral-800 px-3 py-1 rounded-full mt-2">
                     <Text className="text-neutral-300 capitalize font-medium">{selectedTx.status}</Text>
                   </View>
@@ -144,6 +166,18 @@ export default function HistoryScreen() {
                   <View className="flex-row justify-between items-center py-3 border-b border-neutral-800">
                     <Text className="text-neutral-400">Type</Text>
                     <Text className="text-white capitalize font-medium">{selectedTx.type}</Text>
+                  </View>
+
+                  <View className="flex-row justify-between items-center py-3 border-b border-neutral-800">
+                    <Text className="text-neutral-400">Asset & Network</Text>
+                    <View className="flex-row items-center">
+                      <Text className="text-white font-medium mr-1.5">{formatHistoryAsset(selectedTx.currency).symbol}</Text>
+                      {formatHistoryAsset(selectedTx.currency).badge && (
+                        <View className="bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                          <Text className="text-[10px] font-bold text-emerald-400">{formatHistoryAsset(selectedTx.currency).badge}</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                   
                   <View className="flex-row justify-between items-center py-3 border-b border-neutral-800">

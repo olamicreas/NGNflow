@@ -37,6 +37,15 @@ const ASSETS = [
 const OTC_ASSETS = ['NGN', 'USDT_TRC20', 'USDT_BEP20', 'USDT_POLYGON', 'USDT_ERC20', 'BTC'];
 const ROUTER_ASSETS = ['ETH', 'TRX', 'BNB', 'POL'];
 
+const formatAssetDisplay = (sym) => {
+  if (!sym) return { symbol: '', badge: null };
+  if (sym === 'USDT_TRC20') return { symbol: 'USDT', badge: 'TRC20' };
+  if (sym === 'USDT_BEP20') return { symbol: 'USDT', badge: 'BEP20' };
+  if (sym === 'USDT_POLYGON') return { symbol: 'USDT', badge: 'Polygon' };
+  if (sym === 'USDT_ERC20') return { symbol: 'USDT', badge: 'ERC20' };
+  return { symbol: sym, badge: null };
+};
+
 export default function SwapScreen({ route, navigation }) {
   const [payAmount, setPayAmount] = useState('');
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -342,7 +351,7 @@ export default function SwapScreen({ route, navigation }) {
   const getButtonText = () => {
     if (!parsedPay || parsedPay <= 0) return 'Enter Amount';
     if (payAsset.symbol === receiveAsset.symbol) return 'Select Different Assets';
-    if (!isBalanceSufficient) return `Insufficient ${payAsset.symbol} Balance`;
+    if (!isBalanceSufficient) return `Insufficient ${formatAssetDisplay(payAsset.symbol).symbol} Balance`;
     if (isBelowMin) return `Min Swap: ₦${Math.ceil(routerQuote.min_amount).toLocaleString()}`;
     if (isRouterSell && sellSource === 'external') return 'Generate Deposit Address & Lock Rate';
     return 'Confirm Swap';
@@ -416,15 +425,20 @@ export default function SwapScreen({ route, navigation }) {
                 placeholderTextColor="#525252"
                 style={{ includeFontPadding: false, paddingVertical: 0 }}
               />
-              <TouchableOpacity onPress={() => openSelector('pay')} className="flex-row items-center bg-neutral-950 px-3 py-2 rounded-full border border-neutral-800 ml-4">
+              <TouchableOpacity onPress={() => openSelector('pay')} className="flex-row items-center bg-neutral-950 px-3.5 py-2 rounded-full border border-neutral-800 ml-4">
                 <Image source={{ uri: payAsset.logo }} className="w-5 h-5 rounded-full mr-2 bg-white" />
-                <Text className="text-white font-semibold text-sm mr-2">{payAsset.symbol}</Text>
+                <Text className="text-white font-semibold text-sm mr-1">{formatAssetDisplay(payAsset.symbol).symbol}</Text>
+                {formatAssetDisplay(payAsset.symbol).badge && (
+                  <View className="bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30 mr-1.5">
+                    <Text className="text-[10px] font-bold text-emerald-400">{formatAssetDisplay(payAsset.symbol).badge}</Text>
+                  </View>
+                )}
                 <ChevronRight color="#525252" size={14} style={{ transform: [{ rotate: '90deg' }] }} />
               </TouchableOpacity>
             </View>
             <View className="flex-row justify-between items-center mt-2">
               <Text className={`text-xs ${(!isBalanceSufficient) ? 'text-red-400' : 'text-neutral-500'}`}>
-                {isRouterSell && sellSource === 'external' ? 'Send from MetaMask, Trust Wallet, etc.' : `Balance: ${fromBalance.toLocaleString()} ${payAsset.symbol}`}
+                {isRouterSell && sellSource === 'external' ? 'Send from MetaMask, Trust Wallet, etc.' : `Balance: ${fromBalance.toLocaleString()} ${formatAssetDisplay(payAsset.symbol).symbol}`}
               </Text>
               {!(isRouterSell && sellSource === 'external') && (
                 <TouchableOpacity onPress={() => setPayAmount(fromBalance.toString())}>
@@ -454,15 +468,20 @@ export default function SwapScreen({ route, navigation }) {
                   {receiveAmount ? receiveAmount.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0.00'}
                 </Text>
               )}
-              <TouchableOpacity onPress={() => openSelector('receive')} className="flex-row items-center bg-neutral-950 px-3 py-2 rounded-full border border-neutral-800 ml-4">
+              <TouchableOpacity onPress={() => openSelector('receive')} className="flex-row items-center bg-neutral-950 px-3.5 py-2 rounded-full border border-neutral-800 ml-4">
                 <Image source={{ uri: receiveAsset.logo }} className="w-5 h-5 rounded-full mr-2 bg-white" />
-                <Text className="text-white font-semibold text-sm mr-2">{receiveAsset.symbol}</Text>
+                <Text className="text-white font-semibold text-sm mr-1">{formatAssetDisplay(receiveAsset.symbol).symbol}</Text>
+                {formatAssetDisplay(receiveAsset.symbol).badge && (
+                  <View className="bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30 mr-1.5">
+                    <Text className="text-[10px] font-bold text-emerald-400">{formatAssetDisplay(receiveAsset.symbol).badge}</Text>
+                  </View>
+                )}
                 <ChevronRight color="#525252" size={14} style={{ transform: [{ rotate: '90deg' }] }} />
               </TouchableOpacity>
             </View>
             <View className="flex-row justify-between items-center mt-4">
               <Text className="text-xs text-neutral-500">
-                Rate: 1 {payAsset.symbol} ≈ {parsedPay > 0 && receiveAmount > 0 ? (receiveAmount / parsedPay).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ((payRate / receiveRate) * 0.99).toLocaleString(undefined, { maximumFractionDigits: 6 })} {receiveAsset.symbol}
+                Rate: 1 {formatAssetDisplay(payAsset.symbol).symbol} ≈ {parsedPay > 0 && receiveAmount > 0 ? (receiveAmount / parsedPay).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ((payRate / receiveRate) * 0.99).toLocaleString(undefined, { maximumFractionDigits: 6 })} {formatAssetDisplay(receiveAsset.symbol).symbol}
               </Text>
               <View className="bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                 <Text className="text-[10px] text-emerald-400 font-semibold">1% Fee Included</Text>
@@ -501,7 +520,7 @@ export default function SwapScreen({ route, navigation }) {
                 <Text className="text-xs font-bold text-white">Estimated Received</Text>
                 <View className="items-end">
                   <Text className="text-xs font-bold text-emerald-400">
-                    {(routerQuote.estimated_receive || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {receiveAsset.symbol}
+                    {(routerQuote.estimated_receive || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {formatAssetDisplay(receiveAsset.symbol).symbol}
                   </Text>
                   {routerQuote.estimated_ngn_value ? (
                     <Text className="text-[10px] text-neutral-400">
@@ -514,7 +533,7 @@ export default function SwapScreen({ route, navigation }) {
               {routerQuote.min_amount > 0 && parsedPay < routerQuote.min_amount && (
                 <View className="bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 mt-2">
                   <Text className="text-[11px] text-amber-400">
-                    ⚠️ Minimum required swap amount for {receiveAsset.symbol} is ₦{routerQuote.min_amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}.
+                    ⚠️ Minimum required swap amount for {formatAssetDisplay(receiveAsset.symbol).symbol} is ₦{routerQuote.min_amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}.
                   </Text>
                 </View>
               )}
@@ -566,24 +585,34 @@ export default function SwapScreen({ route, navigation }) {
               </TouchableOpacity>
             </View>
             <ScrollView className="flex-1">
-              {ASSETS.map(asset => (
-                <TouchableOpacity
-                  key={asset.symbol}
-                  onPress={() => selectAsset(asset)}
-                  className="flex-row justify-between items-center p-4 rounded-2xl mb-2 bg-neutral-950 border border-neutral-800/50"
-                >
-                  <View className="flex-row items-center">
-                    <Image source={{ uri: asset.logo }} className="w-10 h-10 rounded-full mr-4 bg-white" />
-                    <View>
-                      <Text className="text-white font-semibold">{asset.name}</Text>
-                      <Text className="text-neutral-500 text-xs">{asset.symbol}</Text>
+              {ASSETS.map(asset => {
+                const assetDisplay = formatAssetDisplay(asset.symbol);
+                return (
+                  <TouchableOpacity
+                    key={asset.symbol}
+                    onPress={() => selectAsset(asset)}
+                    className="flex-row justify-between items-center p-4 rounded-2xl mb-2 bg-neutral-950 border border-neutral-800/50"
+                  >
+                    <View className="flex-row items-center">
+                      <Image source={{ uri: asset.logo }} className="w-10 h-10 rounded-full mr-4 bg-white" />
+                      <View>
+                        <View className="flex-row items-center">
+                          <Text className="text-white font-semibold">{assetDisplay.symbol}</Text>
+                          {assetDisplay.badge && (
+                            <View className="bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30 ml-2">
+                              <Text className="text-[10px] font-bold text-emerald-400">{assetDisplay.badge}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text className="text-neutral-500 text-xs">{asset.name}</Text>
+                      </View>
                     </View>
-                  </View>
-                  <Text className="text-white font-semibold">
-                    {(balances[asset.symbol] || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text className="text-white font-semibold">
+                      {(balances[asset.symbol] || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -595,7 +624,7 @@ export default function SwapScreen({ route, navigation }) {
           <View className="bg-neutral-900 rounded-t-[2.5rem] p-6 max-h-[85%]">
             <View className="flex-row justify-between items-center mb-4">
               <View>
-                <Text className="text-lg font-bold text-white">Send {payAsset.symbol}</Text>
+                <Text className="text-lg font-bold text-white">Send {formatAssetDisplay(payAsset.symbol).symbol}</Text>
                 <Text className="text-xs text-neutral-400">Lock Rate & Convert to Naira</Text>
               </View>
               <TouchableOpacity onPress={() => setDepositModalVisible(false)} className="p-2 bg-neutral-800 rounded-full">
@@ -619,7 +648,7 @@ export default function SwapScreen({ route, navigation }) {
                 <View className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 my-2 items-center">
                   <Text className="text-xs text-neutral-400">Exact Deposit Amount</Text>
                   <Text className="text-xl font-bold text-emerald-400 mt-1">
-                    {activeDepositOrder.amount} {payAsset.symbol}
+                    {activeDepositOrder.amount} {formatAssetDisplay(payAsset.symbol).symbol}
                   </Text>
                   <Text className="text-xs text-neutral-500 mt-1">
                     Credited Amount: ₦{(activeDepositOrder.expected_ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
